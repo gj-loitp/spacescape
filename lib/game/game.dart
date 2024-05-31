@@ -25,11 +25,12 @@ import 'audio_player_component.dart';
 
 // This class is responsible for initializing and running the game-loop.
 class SpacescapeGame extends FlameGame
-    with
-        HasDraggables,
-        HasTappables,
-        HasCollisionDetection,
-        HasKeyboardHandlerComponents {
+    with HasCollisionDetection, HasKeyboardHandlerComponents {
+  // The whole game world.
+  final World world = World();
+
+  late CameraComponent primaryCamera;
+
   // Stores a reference to player component.
   late Player _player;
 
@@ -56,17 +57,17 @@ class SpacescapeGame extends FlameGame
   // List of commands to be processed in next update.
   final _addLaterCommandList = List<Command>.empty(growable: true);
 
-  // Indicates wheater the game world has been already initilized.
+  // Indicates weather the game world has been already initialized.
   bool _isAlreadyLoaded = false;
+
+  // Returns the size of the playable area of the game window.
+  Vector2 fixedResolution = Vector2(540, 960);
 
   // This method gets called by Flame before the game-loop begins.
   // Assets loading and adding component should be done here.
   @override
   Future<void> onLoad() async {
-    // Makes the game use a fixed resolution irrespective of the windows size.
-    camera.viewport = FixedResolutionViewport(Vector2(540, 960));
-
-    // Initilize the game world only one time.
+    // Initialize the game world only one time.
     if (!_isAlreadyLoaded) {
       // Loads and caches all the images for later use.
       await images.loadAll([
@@ -77,27 +78,18 @@ class SpacescapeGame extends FlameGame
         'nuke.png',
       ]);
 
-      _audioPlayerComponent = AudioPlayerComponent();
-      add(_audioPlayerComponent);
-
-      final stars = await ParallaxComponent.load(
-        [ParallaxImageData('stars1.png'), ParallaxImageData('stars2.png')],
-        repeat: ImageRepeat.repeat,
-        baseVelocity: Vector2(0, -50),
-        velocityMultiplierDelta: Vector2(0, 1.5),
-      );
-      add(stars);
-
       spriteSheet = SpriteSheet.fromColumnsAndRows(
         image: images.fromCache('simpleSpace_tilesheet@2.png'),
         columns: 8,
         rows: 6,
       );
 
+      await add(world);
+
       // Create a basic joystick component on left.
       final joystick = JoystickComponent(
         anchor: Anchor.bottomLeft,
-        position: Vector2(30, size.y - 30),
+        position: Vector2(30, fixedResolution.y - 30),
         // size: 100,
         background: CircleComponent(
           radius: 60,
@@ -105,7 +97,23 @@ class SpacescapeGame extends FlameGame
         ),
         knob: CircleComponent(radius: 30),
       );
-      add(joystick);
+
+      primaryCamera = CameraComponent.withFixedResolution(
+        world: world,
+        width: fixedResolution.x,
+        height: fixedResolution.y,
+        hudComponents: [joystick],
+      )..viewfinder.position = fixedResolution / 2;
+      await add(primaryCamera);
+
+      _audioPlayerComponent = AudioPlayerComponent();
+      final stars = await ParallaxComponent.load(
+        [ParallaxImageData('stars1.png'), ParallaxImageData('stars2.png')],
+        repeat: ImageRepeat.repeat,
+        baseVelocity: Vector2(0, -50),
+        velocityMultiplierDelta: Vector2(0, 1.5),
+        size: fixedResolution,
+      );
 
       /// As build context is not valid in onLoad() method, we
       /// cannot get current [PlayerData] here. So initilize player
@@ -118,18 +126,14 @@ class SpacescapeGame extends FlameGame
         spaceshipType: spaceshipType,
         sprite: spriteSheet.getSpriteById(spaceship.spriteId),
         size: Vector2(64, 64),
-        position: size / 2,
+        position: fixedResolution / 2,
       );
 
       // Makes sure that the sprite is centered.
       _player.anchor = Anchor.center;
-      add(_player);
 
       _enemyManager = EnemyManager(spriteSheet: spriteSheet);
-      add(_enemyManager);
-
       _powerUpManager = PowerUpManager();
-      add(_powerUpManager);
 
       // Create a fire button component on right
       final button = ButtonComponent(
@@ -138,10 +142,9 @@ class SpacescapeGame extends FlameGame
           paint: Paint()..color = Colors.white.withOpacity(0.5),
         ),
         anchor: Anchor.bottomRight,
-        position: Vector2(size.x - 30, size.y - 30),
+        position: Vector2(fixedResolution.x - 30, fixedResolution.y - 30),
         onPressed: _player.joystickAction,
       );
-      add(button);
 
       // Create text component for player score.
       _playerScore = TextComponent(
@@ -156,16 +159,10 @@ class SpacescapeGame extends FlameGame
         ),
       );
 
-      // Setting positionType to viewport makes sure that this component
-      // does not get affected by camera's transformations.
-      _playerScore.positionType = PositionType.viewport;
-
-      add(_playerScore);
-
       // Create text component for player health.
       _playerHealth = TextComponent(
         text: 'Health: 100%',
-        position: Vector2(size.x - 10, 10),
+        position: Vector2(fixedResolution.x - 10, 10),
         textRenderer: TextPaint(
           style: const TextStyle(
             color: Colors.white,
@@ -179,20 +176,25 @@ class SpacescapeGame extends FlameGame
       // corner of this component to be at a specific position.
       _playerHealth.anchor = Anchor.topRight;
 
-      // Setting positionType to viewport makes sure that this component
-      // does not get affected by camera's transformations.
-      _playerHealth.positionType = PositionType.viewport;
-
-      add(_playerHealth);
-
       // Add the blue bar indicating health.
-      add(
-        HealthBar(
-          player: _player,
-          position: _playerHealth.positionOfAnchor(Anchor.topLeft),
-          priority: -1,
-        ),
+      final healthBar = HealthBar(
+        player: _player,
+        position: _playerHealth.positionOfAnchor(Anchor.topLeft),
+        priority: -1,
       );
+
+      // Makes the game use a fixed resolution irrespective of the windows size.
+      await world.addAll([
+        _audioPlayerComponent,
+        stars,
+        _player,
+        _enemyManager,
+        _powerUpManager,
+        button,
+        _playerScore,
+        _playerHealth,
+        healthBar,
+      ]);
 
       // Set this to true so that we do not initilize
       // everything again in the same session.
@@ -256,7 +258,7 @@ class SpacescapeGame extends FlameGame
     // method of Command is no-op if the command is
     // not valid for given component.
     for (var command in _commandList) {
-      for (var component in children) {
+      for (var component in world.children) {
         command.run(component);
       }
     }
@@ -274,7 +276,8 @@ class SpacescapeGame extends FlameGame
 
       /// Display [GameOverMenu] when [Player.health] becomes
       /// zero and camera stops shaking.
-      if (_player.health <= 0 && (!camera.shaking)) {
+      // if (_player.health <= 0 && (!camera.shaking)) {
+      if (_player.health <= 0) {
         pauseEngine();
         overlays.remove(PauseButton.id);
         overlays.add(GameOverMenu.id);
@@ -292,6 +295,7 @@ class SpacescapeGame extends FlameGame
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
         if (_player.health > 0) {
           pauseEngine();
           overlays.remove(PauseButton.id);
@@ -320,15 +324,15 @@ class SpacescapeGame extends FlameGame
     // from the game world. Note that, we are not calling
     // Enemy.destroy() because it will unnecessarily
     // run explosion effect and increase players score.
-    children.whereType<Enemy>().forEach((enemy) {
+    world.children.whereType<Enemy>().forEach((enemy) {
       enemy.removeFromParent();
     });
 
-    children.whereType<Bullet>().forEach((bullet) {
+    world.children.whereType<Bullet>().forEach((bullet) {
       bullet.removeFromParent();
     });
 
-    children.whereType<PowerUp>().forEach((powerUp) {
+    world.children.whereType<PowerUp>().forEach((powerUp) {
       powerUp.removeFromParent();
     });
   }

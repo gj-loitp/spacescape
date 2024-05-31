@@ -21,8 +21,8 @@ class GamePlay extends StatelessWidget {
       // WillPopScope provides us a way to decide if
       // this widget should be poped or not when user
       // presses the back button.
-      body: WillPopScope(
-        onWillPop: () async => false,
+      body: PopScope(
+        canPop: false,
         // GameWidget is useful to inject the underlying
         // widget of any class extending from Flame's Game class.
         child: GameWidget(
@@ -30,17 +30,17 @@ class GamePlay extends StatelessWidget {
           // Initially only pause button overlay will be visible.
           initialActiveOverlays: const [PauseButton.id],
           overlayBuilderMap: {
-            PauseButton.id: (BuildContext context, SpacescapeGame gameRef) =>
+            PauseButton.id: (BuildContext context, SpacescapeGame game) =>
                 PauseButton(
-                  gameRef: gameRef,
+                  game: game,
                 ),
-            PauseMenu.id: (BuildContext context, SpacescapeGame gameRef) =>
+            PauseMenu.id: (BuildContext context, SpacescapeGame game) =>
                 PauseMenu(
-                  gameRef: gameRef,
+                  game: game,
                 ),
-            GameOverMenu.id: (BuildContext context, SpacescapeGame gameRef) =>
+            GameOverMenu.id: (BuildContext context, SpacescapeGame game) =>
                 GameOverMenu(
-                  gameRef: gameRef,
+                  game: game,
                 ),
           },
         ),
